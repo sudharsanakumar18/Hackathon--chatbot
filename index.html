@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise Assistant</title>
+  <style>
+    body {
+      font-family: "Inter", sans-serif;
+      background-color: #f5f7fa;
+      color: #222;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      background-color: #c1121f;
+      color: #fff;
+      width: 100%;
+      padding: 1rem 0;
+      text-align: center;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .container {
+      max-width: 800px;
+      width: 90%;
+      background: #fff;
+      padding: 2rem;
+      margin: 2rem 0;
+      border-radius: 10px;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      margin-top: 0;
+      color: #c1121f;
+    }
+
+    textarea {
+      width: 100%;
+      height: 100px;
+      padding: 0.8rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      resize: vertical;
+    }
+
+    button {
+      background-color: #c1121f;
+      color: #fff;
+      border: none;
+      padding: 0.8rem 1.4rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background 0.2s ease;
+    }
+
+    button:hover {
+      background-color: #8b0d15;
+    }
+
+    .response {
+      background: #f2f4f8;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      white-space: pre-wrap;
+    }
+
+    .file-upload {
+      margin-top: 1.5rem;
+      border-top: 1px solid #ddd;
+      padding-top: 1.5rem;
+    }
+
+    .summary-box {
+      background: #f8fafc;
+      border-left: 4px solid #c1121f;
+      padding: 1rem 1.5rem;
+      margin-top: 1rem;
+      border-radius: 8px;
+    }
+
+    .summary-title {
+      font-weight: bold;
+      font-size: 1.2rem;
+      color: #c1121f;
+      margin-bottom: 0.5rem;
+    }
+
+    ul.summary-points {
+      margin: 0.5rem 0 0.5rem 1rem;
+      padding: 0;
+    }
+
+    .summary-action {
+      margin-top: 0.8rem;
+      font-style: italic;
+      color: #444;
+    }
+
+    .loading {
+      font-style: italic;
+      color: #777;
+    }
+  </style>
+</head>
+<body>
+  <header>Enterprise Assistant (OpenRouter)</header>
+
+  <div class="container">
+    <h2>💬 Chat</h2>
+    <textarea id="userMessage" placeholder="Type your question or message..."></textarea>
+    <br />
+    <button onclick="sendMessage()">Send</button>
+    <div id="chatResponse" class="response"></div>
+
+    <div class="file-upload">
+      <h2>📄 Upload Document for Summary</h2>
+      <input type="file" id="fileInput" accept=".pdf,.txt" />
+      <button onclick="uploadFile()">Upload & Summarize</button>
+      <div id="uploadStatus" class="loading"></div>
+      <div id="summaryBox" class="summary-box" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:5000/api"; // change if hosted elsewhere
+
+    async function sendMessage() {
+      const msg = document.getElementById("userMessage").value.trim();
+      const chatBox = document.getElementById("chatResponse");
+
+      if (!msg) {
+        alert("Please enter a message.");
+        return;
+      }
+
+      chatBox.innerHTML = "<p class='loading'>Thinking...</p>";
+
+      try {
+        const res = await fetch(`${API_BASE}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: msg })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          chatBox.innerHTML = `<strong>Assistant:</strong> ${data.response}`;
+        } else {
+          chatBox.innerHTML = `<span style='color:red;'>Error: ${data.error}</span>`;
+        }
+      } catch (err) {
+        chatBox.innerHTML = `<span style='color:red;'>Error connecting to server.</span>`;
+        console.error(err);
+      }
+    }
+
+    async function uploadFile() {
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+      const status = document.getElementById("uploadStatus");
+      const summaryBox = document.getElementById("summaryBox");
+
+      if (!file) {
+        alert("Please select a file first.");
+        return;
+      }
+
+      status.textContent = "Uploading and summarizing...";
+      summaryBox.style.display = "none";
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const res = await fetch(`${API_BASE}/upload`, {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+          status.textContent = "❌ " + (data.error || "Failed to summarize.");
+          return;
+        }
+
+        const lines = data.summary.split("\n").filter(l => l.trim());
+        let title = "";
+        const bullets = [];
+        let action = "";
+
+        for (const line of lines) {
+          if (!title && line.match(/title|:/i)) {
+            title = line.replace(/title[:\-]*/i, "").trim();
+          } else if (line.startsWith("-") || line.startsWith("•")) {
+            bullets.push(line.replace(/^[-•\s]+/, "").trim());
+          } else if (line.toLowerCase().includes("action")) {
+            action = line.replace(/action[:\-]*/i, "").trim();
+          }
+        }
+
+        if (!title && lines.length > 0) title = lines[0];
+        if (bullets.length === 0 && lines.length > 1)
+          bullets.push(...lines.slice(1, Math.min(5, lines.length)));
+
+        summaryBox.innerHTML = `
+          <div class="summary-title">${title}</div>
+          <ul class="summary-points">
+            ${bullets.map(b => `<li>${b}</li>`).join("")}
+          </ul>
+          <div class="summary-action">${action || ""}</div>
+        `;
+
+        summaryBox.style.display = "block";
+        status.textContent = "✅ Summary generated successfully!";
+      } catch (err) {
+        console.error(err);
+        status.textContent = "❌ Error connecting to server.";
+      }
+    }
+  </script>
+</body>
+</html>
